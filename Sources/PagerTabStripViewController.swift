@@ -257,7 +257,7 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
                     // start/in-progress state
                     onScreenViewControllers.append(childController)
                 }
-            } else if childController.parent != nil {
+            } else if childController.parent != nil && childController != viewControllerDismissing {
                 childController.willMove(toParentViewController: nil)
                 childController.beginAppearanceTransition(false, animated: false)
                 childController.view.removeFromSuperview()
@@ -312,6 +312,8 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
                 presentingVC.removeFromParentViewController()
                 dismissingVC.didMove(toParentViewController: self)
             }
+            viewControllerDismissing = nil
+            viewControllerPresenting = nil
         } else {
             // in-progress state, make sure to update views' frame
             onScreenViewControllers.forEach {
