@@ -83,8 +83,8 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
         return .none
     }
     
-    private var viewControllerDismissing: UIViewController?
-    private var viewControllerPresenting: UIViewController?
+    private var viewControllerDismissingIndex: Int?
+    private var viewControllerPresentingIndex: Int?
 
     override open func viewDidLoad() {
         super.viewDidLoad()
@@ -241,26 +241,35 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
         let pagerViewControllers = pagerTabStripChildViewControllersForScrolling ?? viewControllers
         containerView.contentSize = CGSize(width: containerView.bounds.width * CGFloat(pagerViewControllers.count), height: containerView.contentSize.height)
 
-        var onScreenViewControllers = [UIViewController]()
+        var onScreenViewControllerIndexes = [Int]()
         
         var isFinalState = false
+        
+        var switchTransitionPresentingIndex: Int?
         
         for (index, childController) in pagerViewControllers.enumerated() {
             let pageOffsetForChild = self.pageOffsetForChild(at: index)
             let offsetDifference = fabs(containerView.contentOffset.x - pageOffsetForChild)
             if offsetDifference < containerView.bounds.width {
-                if offsetDifference == 0 {
+                // if the scroll offset doesn't pass exactly on the exact "destination" view controller's offset, we
+                // need to trigger the final state condition, and then trigger the start of a new transition from the
+                // current presenting index to the new presenting index
+                let shouldSwitchTransition = viewControllerDismissingIndex != nil &&
+                    index != viewControllerDismissingIndex && index != viewControllerPresentingIndex
+                if offsetDifference == 0 || shouldSwitchTransition {
                     // end state
                     isFinalState = true
-                    onScreenViewControllers.insert(childController, at: 0)
+                    onScreenViewControllerIndexes.insert(index, at: 0)
+                    if shouldSwitchTransition {
+                        switchTransitionPresentingIndex = index
+                    }
                 } else {
                     // start/in-progress state
-                    onScreenViewControllers.append(childController)
+                    onScreenViewControllerIndexes.append(index)
                 }
-            } else if childController.parent != nil && childController != viewControllerDismissing {
+            } else if childController.parent != nil && index != viewControllerDismissingIndex {
                 childController.willMove(toParentViewController: nil)
                 childController.beginAppearanceTransition(false, animated: false)
-                childController.view.removeFromSuperview()
                 childController.endAppearanceTransition()
                 childController.removeFromParentViewController()
             }
@@ -270,55 +279,75 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
             return CGRect(x: self.offsetForChild(at: index), y: 0, width: self.view.bounds.width, height: self.containerView.bounds.height)
         }
         
-        if !isFinalState && viewControllerDismissing == nil && onScreenViewControllers.count > 1 {
-            // first scroll event, start appearance transitions
-            viewControllerDismissing = pagerViewControllers[currentIndex]
-            viewControllerPresenting = viewControllerDismissing == onScreenViewControllers.first ? onScreenViewControllers[1] : onScreenViewControllers.first
-            
-            if let dismissingVC = viewControllerDismissing,
-                let presentingVC = viewControllerPresenting {
-                dismissingVC.willMove(toParentViewController: nil)
-                addChildViewController(presentingVC)
+        var indexes: [[Int]] = [onScreenViewControllerIndexes]
+        if let switchTransitionPresentingIndex = switchTransitionPresentingIndex,
+            let viewControllerDismissingIndex = viewControllerDismissingIndex,
+            let viewControllerPresentingIndex = viewControllerPresentingIndex {
+            let distanceToDismissing = abs(switchTransitionPresentingIndex - viewControllerDismissingIndex)
+            let distanceToPresenting = abs(switchTransitionPresentingIndex - viewControllerPresentingIndex)
+            indexes.append([
+                distanceToDismissing < distanceToPresenting ? viewControllerDismissingIndex : viewControllerPresentingIndex,
+                switchTransitionPresentingIndex
+            ])
+        }
+        
+        indexes.forEach {
+            onScreenViewControllerIndexes = $0.flatMap({ $0 })
+            if !isFinalState && viewControllerDismissingIndex == nil && onScreenViewControllerIndexes.count > 1 {
+                // first scroll event, start appearance transitions
+                viewControllerDismissingIndex = currentIndex
+                viewControllerPresentingIndex = viewControllerDismissingIndex == onScreenViewControllerIndexes.first ? onScreenViewControllerIndexes[1] : onScreenViewControllerIndexes.first
                 
-                dismissingVC.beginAppearanceTransition(false, animated: !containerView.isTracking)
-                presentingVC.beginAppearanceTransition(true, animated: !containerView.isTracking)
-                presentingVC.view.frame = frameForVC(pagerViewControllers.index(of: presentingVC)!)
-                presentingVC.view.autoresizingMask = [.flexibleHeight, .flexibleWidth]
-                containerView.addSubview(presentingVC.view)
-            }
-        } else if let dismissingVC = viewControllerDismissing,
-            let presentingVC = viewControllerPresenting, isFinalState {
-            if presentingVC == onScreenViewControllers.first {
-                // transition completed
-                dismissingVC.view.removeFromSuperview()
-                dismissingVC.endAppearanceTransition()
-                presentingVC.endAppearanceTransition()
-                
-                dismissingVC.removeFromParentViewController()
-                presentingVC.didMove(toParentViewController: self)
+                if let viewControllerDismissingIndex = viewControllerDismissingIndex,
+                    let viewControllerPresentingIndex = viewControllerPresentingIndex {
+                    let dismissingVC = pagerViewControllers[viewControllerDismissingIndex]
+                    let presentingVC = pagerViewControllers[viewControllerPresentingIndex]
+                    dismissingVC.willMove(toParentViewController: nil)
+                    addChildViewController(presentingVC)
+                    
+                    dismissingVC.beginAppearanceTransition(false, animated: !containerView.isTracking)
+                    presentingVC.beginAppearanceTransition(true, animated: !containerView.isTracking)
+                    presentingVC.view.frame = frameForVC(pagerViewControllers.index(of: presentingVC)!)
+                    presentingVC.view.autoresizingMask = [.flexibleHeight, .flexibleWidth]
+                    if presentingVC.view.superview == nil {
+                        containerView.addSubview(presentingVC.view)
+                    }
+                }
+            } else if let viewControllerDismissingIndex = viewControllerDismissingIndex,
+                let viewControllerPresentingIndex = viewControllerPresentingIndex, isFinalState {
+                let dismissingVC = pagerViewControllers[viewControllerDismissingIndex]
+                let presentingVC = pagerViewControllers[viewControllerPresentingIndex]
+                if viewControllerPresentingIndex == onScreenViewControllerIndexes.first {
+                    // transition completed
+                    dismissingVC.endAppearanceTransition()
+                    presentingVC.endAppearanceTransition()
+                    
+                    dismissingVC.removeFromParentViewController()
+                    presentingVC.didMove(toParentViewController: self)
+                } else {
+                    // transition canceled
+                    
+                    // Before ending each appearance transition, begin an
+                    // appearance transition in the opposite direction.
+                    presentingVC.beginAppearanceTransition(false, animated: false)
+                    presentingVC.endAppearanceTransition()
+                    
+                    dismissingVC.beginAppearanceTransition(true, animated: false)
+                    // we don't need to add the view in this case, as we never really removed it from the container
+                    dismissingVC.endAppearanceTransition()
+                    
+                    presentingVC.removeFromParentViewController()
+                    dismissingVC.didMove(toParentViewController: self)
+                }
+                self.viewControllerDismissingIndex = nil
+                self.viewControllerPresentingIndex = nil
+                isFinalState = false
             } else {
-                // transition canceled
-                
-                // Before ending each appearance transition, begin an
-                // appearance transition in the opposite direction.
-                presentingVC.beginAppearanceTransition(false, animated: false)
-                presentingVC.view.removeFromSuperview()
-                presentingVC.endAppearanceTransition()
-                
-                dismissingVC.beginAppearanceTransition(true, animated: false)
-                // we don't need to add the view in this case, as we never really removed it from the container
-                dismissingVC.endAppearanceTransition()
-                
-                presentingVC.removeFromParentViewController()
-                dismissingVC.didMove(toParentViewController: self)
-            }
-            viewControllerDismissing = nil
-            viewControllerPresenting = nil
-        } else {
-            // in-progress state, make sure to update views' frame
-            onScreenViewControllers.forEach {
-                $0.view.frame = frameForVC(pagerViewControllers.index(of: $0)!)
-                $0.view.autoresizingMask = [.flexibleHeight, .flexibleWidth]
+                // in-progress state, make sure to update views' frame
+                onScreenViewControllerIndexes.forEach {
+                    pagerViewControllers[$0].view.frame = frameForVC($0)
+                    pagerViewControllers[$0].view.autoresizingMask = [.flexibleHeight, .flexibleWidth]
+                }
             }
         }
 
