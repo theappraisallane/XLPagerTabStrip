@@ -251,9 +251,9 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
             let pageOffsetForChild = self.pageOffsetForChild(at: index)
             let offsetDifference = fabs(containerView.contentOffset.x - pageOffsetForChild)
             if offsetDifference < containerView.bounds.width {
-                // if the scroll offset doesn't pass exactly on the exact "destination" view controller's offset, we
-                // need to trigger the final state condition, and then trigger the start of a new transition from the
-                // current presenting index to the new presenting index
+                // if the scroll offset doesn't pass EXACTLY on the exact "destination" view controller's offset, we
+                // need to trigger the final state condition, and then trigger the start of a new transition from a
+                // new dismissing index to the new presenting one
                 let shouldSwitchTransition = viewControllerDismissingIndex != nil &&
                     index != viewControllerDismissingIndex && index != viewControllerPresentingIndex
                 if offsetDifference == 0 || shouldSwitchTransition {
