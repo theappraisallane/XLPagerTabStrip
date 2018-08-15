@@ -267,11 +267,19 @@ open class PagerTabStripViewController: UIViewController, UIScrollViewDelegate {
                     // start/in-progress state
                     onScreenViewControllerIndexes.append(index)
                 }
-            } else if childController.parent != nil && index != viewControllerDismissingIndex {
-                childController.willMove(toParentViewController: nil)
-                childController.beginAppearanceTransition(false, animated: false)
-                childController.endAppearanceTransition()
-                childController.removeFromParentViewController()
+                if childController.isViewLoaded {
+                    childController.view.isHidden = false
+                }
+            } else if index != viewControllerDismissingIndex {
+                if childController.parent != nil {
+                    childController.willMove(toParentViewController: nil)
+                    childController.beginAppearanceTransition(false, animated: false)
+                    childController.endAppearanceTransition()
+                    childController.removeFromParentViewController()
+                }
+                if childController.isViewLoaded {
+                   childController.view.isHidden = true
+                }
             }
         }
         
